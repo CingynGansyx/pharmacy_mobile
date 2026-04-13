@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
 
@@ -23,12 +21,7 @@ class ApiClient {
   final http.Client _client;
 
   static String _defaultBaseUrl() {
-    // Web / Desktop → localhost. Android emulator → 10.0.2.2.
-    if (kIsWeb) return 'http://localhost:8080';
-    try {
-      if (Platform.isAndroid) return 'http://10.0.2.2:8080';
-    } catch (_) {}
-    return 'http://localhost:8080';
+    return 'https://nemesis-tribesman-uneven.ngrok-free.dev';
   }
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
@@ -79,6 +72,7 @@ class ApiClient {
     String? fileContentType,
   }) async {
     final req = http.MultipartRequest('POST', _uri(path));
+    req.headers['ngrok-skip-browser-warning'] = 'true';
     req.fields.addAll(fields);
     req.files.add(
       http.MultipartFile.fromBytes(
@@ -106,6 +100,7 @@ class ApiClient {
   Map<String, String> _headers() => {
         'Content-Type': 'application/json; charset=utf-8',
         'Accept': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
       };
 
   dynamic _decode(http.Response r) {
