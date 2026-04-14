@@ -41,6 +41,9 @@ class _LoginScreenState extends State<LoginScreen> {
       final user =
           await state.auth.login(_username.text.trim(), _password.text);
       state.setUser(user);
+      if (user.role == UserRole.customer) {
+        state.loadCart(); // fire & forget — async load server cart
+      }
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(

@@ -22,6 +22,13 @@ class _MedicinesScreenState extends State<MedicinesScreen> {
   void initState() {
     super.initState();
     _future = _load();
+    _search.addListener(_onSearchChanged);
+  }
+
+  void _onSearchChanged() {
+    // Зөвхөн clear товчны харагдах байдлыг шинэчлэхэд rebuild хийнэ.
+    // TextField өөрөө controller-ээ дагаж ажилладаг тул rebuild хэрэггүй.
+    setState(() {});
   }
 
   Future<List<Medicine>> _load() {
@@ -35,12 +42,14 @@ class _MedicinesScreenState extends State<MedicinesScreen> {
 
   @override
   void dispose() {
+    _search.removeListener(_onSearchChanged);
     _search.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final hasText = _search.text.isNotEmpty;
     return Column(
       children: [
         Padding(
@@ -50,17 +59,16 @@ class _MedicinesScreenState extends State<MedicinesScreen> {
             decoration: InputDecoration(
               hintText: 'Эм хайх...',
               prefixIcon: const Icon(Icons.search, size: 20),
-              suffixIcon: _search.text.isEmpty
-                  ? null
-                  : IconButton(
+              suffixIcon: hasText
+                  ? IconButton(
                       icon: const Icon(Icons.close, size: 18),
                       onPressed: () {
                         _search.clear();
                         _refresh();
                       },
-                    ),
+                    )
+                  : null,
             ),
-            onChanged: (_) => setState(() {}),
             onSubmitted: (_) => _refresh(),
           ),
         ),
@@ -212,14 +220,22 @@ class _MedicineCard extends StatelessWidget {
               const SizedBox(width: 8),
               _AddButton(
                 enabled: !outOfStock,
-                onTap: () {
-                  context.read<AppState>().addToCart(m);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('${m.name} нэмэгдлээ'),
-                      duration: const Duration(seconds: 1),
-                    ),
-                  );
+                onTap: () async {
+                  try {
+                    await context.read<AppState>().addToCart(m.barcode);
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('${m.name} нэмэгдлээ'),
+                        duration: const Duration(seconds: 1),
+                      ),
+                    );
+                  } catch (e) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Алдаа: $e')),
+                    );
+                  }
                 },
               ),
             ],

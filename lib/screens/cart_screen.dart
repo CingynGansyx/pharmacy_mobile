@@ -1,9 +1,11 @@
+import 'package:barcode_widget/barcode_widget.dart' as bw;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
-import '../models/cart_item.dart';
+import '../models/payment.dart';
 import '../models/prescription.dart';
+import '../models/server_cart.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../utils/format.dart';
@@ -21,6 +23,7 @@ class _CartScreenState extends State<CartScreen> {
   final _bonusCtrl = TextEditingController(text: '0');
   bool _loading = false;
   Prescription? _prescription;
+  PaymentMethod _paymentMethod = PaymentMethod.cash;
 
   @override
   void dispose() {
@@ -29,9 +32,6 @@ class _CartScreenState extends State<CartScreen> {
     super.dispose();
   }
 
-  bool get _needsPrescription =>
-      context.read<AppState>().cart.any((c) => c.medicine.prescriptionRequired);
-
   Future<void> _attachPrescription() async {
     final p = await PrescriptionUploadSheet.show(context);
     if (p != null && mounted) setState(() => _prescription = p);
@@ -39,76 +39,50 @@ class _CartScreenState extends State<CartScreen> {
 
   Future<void> _checkout() async {
     final state = context.read<AppState>();
-    if (state.currentUser == null || state.cart.isEmpty) return;
-    if (_needsPrescription && _prescription == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'Жор шаардлагатай эм байна — эмчийн бичиг хавсаргана уу'),
-        ),
-      );
-      return;
-    }
+    if (state.currentUser == null || state.cartEmpty) return;
     setState(() => _loading = true);
     try {
+      // 1. Create checkout transaction
+      final cart = state.cart!;
       final tx = await state.checkout.checkout(
         userId: state.currentUser!.id,
-        items: state.cart,
-        walletAmount: double.tryParse(_walletCtrl.text) ?? 0,
+        items: cart.items
+            .map((e) => {'barcode': e.barcode, 'quantity': e.quantity})
+            .toList(),
+        walletAmount: _paymentMethod == PaymentMethod.wallet
+            ? double.tryParse(_walletCtrl.text) ?? 0
+            : 0,
         bonusPoints: int.tryParse(_bonusCtrl.text) ?? 0,
         prescriptionId: _prescription?.id,
       );
-      state.clearCart();
+
+      // 2. Create payment
+      final cashPaid = tx.cashPaid;
+      Payment? payment;
+      if (cashPaid > 0 &&
+          _paymentMethod != PaymentMethod.cash &&
+          _paymentMethod != PaymentMethod.wallet) {
+        payment = await state.payments.create(
+          transactionId: tx.id,
+          userId: state.currentUser!.id,
+          method: _paymentMethod,
+          amount: cashPaid,
+        );
+      }
+
+      // 3. Clear server cart + refresh user
+      await state.clearCart();
       _prescription = null;
       await state.refreshCurrentUser();
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (_) => Dialog(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 380),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: AppColors.success.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.check,
-                        color: AppColors.success, size: 32),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Амжилттай',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 16),
-                  _summaryRow('Нийт', formatCurrency(tx.total), bold: true),
-                  _summaryRow('Бэлнээр', formatCurrency(tx.cashPaid)),
-                  _summaryRow(
-                      'Хэтэвчнээс', formatCurrency(tx.walletUsed)),
-                  _summaryRow('Бонус ашигласан', '${tx.bonusUsed}'),
-                  _summaryRow('Бонус олсон', '+${tx.bonusEarned}',
-                      color: AppColors.success),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Болсон'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
+
+      // 4. Show result
+      if (payment != null && payment.isPending) {
+        await _showPaymentSheet(payment);
+      } else {
+        await _showSuccessDialog(tx.total, tx.cashPaid, tx.walletUsed,
+            tx.bonusUsed, tx.bonusEarned);
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -122,6 +96,77 @@ class _CartScreenState extends State<CartScreen> {
     }
   }
 
+  Future<void> _showSuccessDialog(double total, double cashPaid,
+      double walletUsed, int bonusUsed, int bonusEarned) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 380),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check,
+                      color: AppColors.success, size: 32),
+                ),
+                const SizedBox(height: 12),
+                Text('Амжилттай',
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 16),
+                _summaryRow('Нийт', formatCurrency(total), bold: true),
+                _summaryRow('Бэлнээр', formatCurrency(cashPaid)),
+                _summaryRow('Хэтэвчнээс', formatCurrency(walletUsed)),
+                _summaryRow('Бонус ашигласан', '$bonusUsed'),
+                _summaryRow('Бонус олсон', '+$bonusEarned',
+                    color: AppColors.success),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Болсон'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPaymentSheet(Payment payment) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _PaymentInfoSheet(
+        payment: payment,
+        onConfirm: () async {
+          final state = context.read<AppState>();
+          final confirmed = await state.payments.confirm(payment.id);
+          if (!mounted) return;
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(confirmed.isConfirmed
+                  ? 'Төлбөр баталгаажлаа'
+                  : 'Төлбөр: ${confirmed.status}'),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _summaryRow(String label, String value,
       {bool bold = false, Color? color}) {
     return Padding(
@@ -129,13 +174,9 @@ class _CartScreenState extends State<CartScreen> {
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.textSecondary,
-              ),
-            ),
+            child: Text(label,
+                style: const TextStyle(
+                    fontSize: 13, color: AppColors.textSecondary)),
           ),
           Text(
             value,
@@ -153,7 +194,7 @@ class _CartScreenState extends State<CartScreen> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    if (state.cart.isEmpty) {
+    if (state.cartEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -165,52 +206,43 @@ class _CartScreenState extends State<CartScreen> {
                 color: AppColors.borderSoft,
                 borderRadius: BorderRadius.circular(24),
               ),
-              child: const Icon(
-                Icons.shopping_bag_outlined,
-                size: 40,
-                color: AppColors.textMuted,
-              ),
+              child: const Icon(Icons.shopping_bag_outlined,
+                  size: 40, color: AppColors.textMuted),
             ),
             const SizedBox(height: 16),
-            const Text(
-              'Сагс хоосон',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
+            const Text('Сагс хоосон',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary)),
             const SizedBox(height: 4),
-            const Text(
-              'Эмийн жагсаалтаас сонгоод нэмнэ үү',
-              style: TextStyle(
-                fontSize: 13,
-                color: AppColors.textSecondary,
-              ),
-            ),
+            const Text('Эмийн жагсаалтаас сонгоод нэмнэ үү',
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
           ],
         ),
       );
     }
+    final items = state.cart!.items;
     return Column(
       children: [
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            itemCount: state.cart.length,
+            itemCount: items.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, i) =>
-                _CartItemCard(item: state.cart[i], state: state),
+                _CartEntryCard(entry: items[i], state: state),
           ),
         ),
-        _BottomCheckoutPanel(
+        _BottomPanel(
           state: state,
           loading: _loading,
-          needsPrescription: _needsPrescription,
           prescription: _prescription,
           onAttachPrescription: _attachPrescription,
           walletCtrl: _walletCtrl,
           bonusCtrl: _bonusCtrl,
+          paymentMethod: _paymentMethod,
+          onPaymentMethodChanged: (m) => setState(() => _paymentMethod = m),
           onCheckout: _checkout,
         ),
       ],
@@ -218,10 +250,9 @@ class _CartScreenState extends State<CartScreen> {
   }
 }
 
-class _CartItemCard extends StatelessWidget {
-  const _CartItemCard({required this.item, required this.state});
-
-  final CartItem item;
+class _CartEntryCard extends StatelessWidget {
+  const _CartEntryCard({required this.entry, required this.state});
+  final CartEntry entry;
   final AppState state;
 
   @override
@@ -246,28 +277,20 @@ class _CartItemCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item.medicine.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                  Text(entry.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 2),
-                  Text(
-                    formatCurrency(item.medicine.price),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
+                  Text(formatCurrency(entry.price),
+                      style: const TextStyle(
+                          fontSize: 13, color: AppColors.textSecondary)),
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            _QuantityStepper(item: item, state: state),
+            _QuantityStepper(entry: entry, state: state),
           ],
         ),
       ),
@@ -276,9 +299,8 @@ class _CartItemCard extends StatelessWidget {
 }
 
 class _QuantityStepper extends StatelessWidget {
-  const _QuantityStepper({required this.item, required this.state});
-
-  final CartItem item;
+  const _QuantityStepper({required this.entry, required this.state});
+  final CartEntry entry;
   final AppState state;
 
   @override
@@ -291,26 +313,27 @@ class _QuantityStepper extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _StepperButton(
-            icon: Icons.remove,
-            onTap: () => state.setCartQuantity(
-                item.medicine.barcode, item.quantity - 1),
+          _StepperBtn(
+            icon: entry.quantity <= 1 ? Icons.delete_outline : Icons.remove,
+            onTap: () {
+              if (entry.quantity <= 1) {
+                state.removeCartItem(entry.barcode);
+              } else {
+                state.updateCartItem(entry.barcode, entry.quantity - 1);
+              }
+            },
           ),
           SizedBox(
             width: 28,
-            child: Text(
-              '${item.quantity}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            child: Text('${entry.quantity}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600)),
           ),
-          _StepperButton(
+          _StepperBtn(
             icon: Icons.add,
-            onTap: () => state.setCartQuantity(
-                item.medicine.barcode, item.quantity + 1),
+            onTap: () =>
+                state.updateCartItem(entry.barcode, entry.quantity + 1),
           ),
         ],
       ),
@@ -318,8 +341,8 @@ class _QuantityStepper extends StatelessWidget {
   }
 }
 
-class _StepperButton extends StatelessWidget {
-  const _StepperButton({required this.icon, required this.onTap});
+class _StepperBtn extends StatelessWidget {
+  const _StepperBtn({required this.icon, required this.onTap});
   final IconData icon;
   final VoidCallback onTap;
 
@@ -337,25 +360,27 @@ class _StepperButton extends StatelessWidget {
   }
 }
 
-class _BottomCheckoutPanel extends StatelessWidget {
-  const _BottomCheckoutPanel({
+class _BottomPanel extends StatelessWidget {
+  const _BottomPanel({
     required this.state,
     required this.loading,
-    required this.needsPrescription,
     required this.prescription,
     required this.onAttachPrescription,
     required this.walletCtrl,
     required this.bonusCtrl,
+    required this.paymentMethod,
+    required this.onPaymentMethodChanged,
     required this.onCheckout,
   });
 
   final AppState state;
   final bool loading;
-  final bool needsPrescription;
   final Prescription? prescription;
   final VoidCallback onAttachPrescription;
   final TextEditingController walletCtrl;
   final TextEditingController bonusCtrl;
+  final PaymentMethod paymentMethod;
+  final ValueChanged<PaymentMethod> onPaymentMethodChanged;
   final VoidCallback onCheckout;
 
   @override
@@ -363,9 +388,7 @@ class _BottomCheckoutPanel extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        border: Border(
-          top: BorderSide(color: AppColors.borderSoft),
-        ),
+        border: Border(top: BorderSide(color: AppColors.borderSoft)),
       ),
       child: SafeArea(
         top: false,
@@ -375,61 +398,128 @@ class _BottomCheckoutPanel extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (needsPrescription) ...[
-                _PrescriptionCard(
-                  prescription: prescription,
-                  onTap: onAttachPrescription,
+              // Prescription attach (optional)
+              InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                onTap: onAttachPrescription,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: prescription == null
+                        ? AppColors.borderSoft
+                        : AppColors.success.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        prescription == null
+                            ? Icons.medical_information_outlined
+                            : Icons.check_circle,
+                        size: 18,
+                        color: prescription == null
+                            ? AppColors.textMuted
+                            : AppColors.success,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          prescription == null
+                              ? 'Эмчийн бичиг хавсаргах (Rx эмд хэрэгтэй)'
+                              : 'Жор: ${prescription!.originalFileName ?? prescription!.id}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: prescription == null
+                                ? AppColors.textSecondary
+                                : AppColors.success,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-              ],
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: walletCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Хэтэвчнээс',
-                        isDense: true,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: bonusCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Бонус',
-                        isDense: true,
-                      ),
-                    ),
-                  ),
-                ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
+
+              // Payment method selector
+              const Text('Төлбөрийн арга',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary)),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                children: PaymentMethod.values.map((m) {
+                  final selected = m == paymentMethod;
+                  return ChoiceChip(
+                    label: Text(paymentMethodLabel(m)),
+                    selected: selected,
+                    onSelected: (_) => onPaymentMethodChanged(m),
+                    avatar: Icon(_iconFor(m), size: 16),
+                    selectedColor: AppColors.primarySoft,
+                    side: selected
+                        ? const BorderSide(color: AppColors.primary)
+                        : BorderSide.none,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: selected
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    visualDensity: VisualDensity.compact,
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 10),
+
+              // Wallet / bonus fields (show when relevant)
+              if (paymentMethod == PaymentMethod.wallet) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: walletCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                            labelText: 'Хэтэвчнээс', isDense: true),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: bonusCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                            labelText: 'Бонус', isDense: true),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
+
+              // Total + checkout
               Row(
                 children: [
-                  const Text(
-                    'Нийт',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
+                  const Text('Нийт',
+                      style: TextStyle(
+                          fontSize: 14, color: AppColors.textSecondary)),
                   const Spacer(),
                   Flexible(
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerRight,
-                      child: Text(
-                        formatCurrency(state.cartTotal),
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
-                        ),
-                      ),
+                      child: Text(formatCurrency(state.cartTotal),
+                          style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary)),
                     ),
                   ),
                 ],
@@ -442,10 +532,7 @@ class _BottomCheckoutPanel extends StatelessWidget {
                         height: 16,
                         width: 16,
                         child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
+                            strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.check_circle_outline),
                 label: const Text('Төлбөр төлөх'),
               ),
@@ -455,82 +542,128 @@ class _BottomCheckoutPanel extends StatelessWidget {
       ),
     );
   }
+
+  IconData _iconFor(PaymentMethod m) {
+    switch (m) {
+      case PaymentMethod.cash:
+        return Icons.money;
+      case PaymentMethod.wallet:
+        return Icons.account_balance_wallet_outlined;
+      case PaymentMethod.bankTransfer:
+        return Icons.account_balance_outlined;
+      case PaymentMethod.qpay:
+        return Icons.qr_code_2;
+    }
+  }
 }
 
-class _PrescriptionCard extends StatelessWidget {
-  const _PrescriptionCard({required this.prescription, required this.onTap});
+/// Bottom sheet showing bank transfer or QPay info.
+class _PaymentInfoSheet extends StatelessWidget {
+  const _PaymentInfoSheet({
+    required this.payment,
+    required this.onConfirm,
+  });
 
-  final Prescription? prescription;
-  final VoidCallback onTap;
+  final Payment payment;
+  final VoidCallback onConfirm;
 
   @override
   Widget build(BuildContext context) {
-    final attached = prescription != null;
-    final color = attached ? AppColors.success : AppColors.warning;
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
-        ),
-        child: Row(
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Icon(
-              attached ? Icons.check_circle : Icons.warning_amber_rounded,
-              color: color,
-              size: 20,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    attached
-                        ? 'Эмчийн бичиг хавсрагдсан'
-                        : 'Эмчийн бичиг шаардлагатай',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: color,
-                    ),
-                  ),
-                  if (attached)
-                    Text(
-                      prescription!.originalFileName ?? prescription!.id,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textSecondary,
-                      ),
-                    )
-                  else
-                    const Text(
-                      'Сагсанд Rx эм байна',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
             Text(
-              attached ? 'Солих' : 'Хавсаргах',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: color,
+              payment.method == PaymentMethod.qpay
+                  ? 'QPay төлбөр'
+                  : 'Дансны шилжүүлэг',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Дүн: ${formatCurrency(payment.amount)}',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primary,
               ),
+            ),
+            const Divider(height: 24),
+            if (payment.method == PaymentMethod.qpay &&
+                payment.qrCodeData != null) ...[
+              const Text('QR кодыг уншуулж төлнө үү',
+                  style: TextStyle(color: AppColors.textSecondary)),
+              const SizedBox(height: 12),
+              Center(
+                child: bw.BarcodeWidget(
+                  barcode: bw.Barcode.qrCode(),
+                  data: payment.qrCodeData!,
+                  width: 200,
+                  height: 200,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                payment.qrCodeData!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textMuted),
+              ),
+            ],
+            if (payment.method == PaymentMethod.bankTransfer) ...[
+              _InfoRow('Банк', payment.bankName ?? '—'),
+              _InfoRow('Данс', payment.bankAccount ?? '—'),
+              _InfoRow('Гүйлгээний утга', payment.referenceNote ?? '—'),
+              const SizedBox(height: 8),
+              const Text(
+                'Дээрх мэдээллээр шилжүүлэг хийсний дараа "Баталгаажуулах" дарна уу.',
+                style: TextStyle(
+                    fontSize: 13, color: AppColors.textSecondary),
+              ),
+            ],
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: onConfirm,
+              child: const Text('Баталгаажуулах'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Хаах'),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow(this.label, this.value);
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(label,
+                style: const TextStyle(
+                    fontSize: 13, color: AppColors.textSecondary)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600)),
+          ),
+        ],
       ),
     );
   }

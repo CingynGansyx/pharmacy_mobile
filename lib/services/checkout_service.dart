@@ -1,15 +1,15 @@
 import '../api/api_client.dart';
-import '../models/cart_item.dart';
 import '../models/transaction.dart';
 
 class CheckoutService {
   CheckoutService(this._api);
   final ApiClient _api;
 
+  /// [items] нь `[{barcode, quantity}]` жагсаалт.
   Future<AppTransaction> checkout({
     required String userId,
     String? branchId,
-    required List<CartItem> items,
+    required List<Map<String, dynamic>> items,
     double walletAmount = 0,
     int bonusPoints = 0,
     String? prescriptionId,
@@ -17,12 +17,7 @@ class CheckoutService {
     final data = await _api.post('/api/checkout', body: {
       'userId': userId,
       if (branchId != null) 'branchId': branchId,
-      'items': items
-          .map((i) => {
-                'barcode': i.medicine.barcode,
-                'quantity': i.quantity,
-              })
-          .toList(),
+      'items': items,
       'walletAmount': walletAmount,
       'bonusPoints': bonusPoints,
       if (prescriptionId != null) 'prescriptionId': prescriptionId,

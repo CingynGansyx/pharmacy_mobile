@@ -53,6 +53,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         role: _role,
       );
       state.setUser(user);
+      if (user.role == UserRole.customer) {
+        state.loadCart();
+      }
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(

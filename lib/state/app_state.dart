@@ -1,13 +1,14 @@
 import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
-import '../models/cart_item.dart';
-import '../models/medicine.dart';
+import '../models/server_cart.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
 import '../services/branch_service.dart';
+import '../services/cart_api_service.dart';
 import '../services/checkout_service.dart';
 import '../services/medicine_service.dart';
+import '../services/payment_service.dart';
 import '../services/prescription_service.dart';
 import '../services/transaction_service.dart';
 import '../services/user_service.dart';
@@ -21,6 +22,8 @@ class AppState extends ChangeNotifier {
     checkout = CheckoutService(this.api);
     transactions = TransactionService(this.api);
     prescriptions = PrescriptionService(this.api);
+    cartApi = CartApiService(this.api);
+    payments = PaymentApiService(this.api);
   }
 
   final ApiClient api;
@@ -31,15 +34,13 @@ class AppState extends ChangeNotifier {
   late final CheckoutService checkout;
   late final TransactionService transactions;
   late final PrescriptionService prescriptions;
+  late final CartApiService cartApi;
+  late final PaymentApiService payments;
 
+  // ---- User ----
   AppUser? _currentUser;
   AppUser? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
-
-  final List<CartItem> _cart = [];
-  List<CartItem> get cart => List.unmodifiable(_cart);
-  int get cartCount => _cart.fold(0, (a, b) => a + b.quantity);
-  double get cartTotal => _cart.fold(0, (a, b) => a + b.subtotal);
 
   void setUser(AppUser user) {
     _currentUser = user;
@@ -55,38 +56,49 @@ class AppState extends ChangeNotifier {
 
   void logout() {
     _currentUser = null;
-    _cart.clear();
+    _cart = null;
     notifyListeners();
   }
 
-  void addToCart(Medicine m, {int quantity = 1}) {
-    final existing = _cart.indexWhere((c) => c.medicine.barcode == m.barcode);
-    if (existing >= 0) {
-      _cart[existing].quantity += quantity;
-    } else {
-      _cart.add(CartItem(medicine: m, quantity: quantity));
-    }
+  // ---- Server Cart ----
+  ServerCart? _cart;
+  ServerCart? get cart => _cart;
+  int get cartCount => _cart?.count ?? 0;
+  double get cartTotal => _cart?.total ?? 0;
+  bool get cartEmpty => _cart == null || _cart!.isEmpty;
+
+  Future<void> loadCart() async {
+    final id = _currentUser?.id;
+    if (id == null) return;
+    _cart = await cartApi.get(id);
     notifyListeners();
   }
 
-  void setCartQuantity(String barcode, int quantity) {
-    final idx = _cart.indexWhere((c) => c.medicine.barcode == barcode);
-    if (idx < 0) return;
-    if (quantity <= 0) {
-      _cart.removeAt(idx);
-    } else {
-      _cart[idx].quantity = quantity;
-    }
+  Future<void> addToCart(String barcode, {int quantity = 1}) async {
+    final id = _currentUser?.id;
+    if (id == null) return;
+    _cart = await cartApi.addItem(id, barcode, quantity: quantity);
     notifyListeners();
   }
 
-  void removeFromCart(String barcode) {
-    _cart.removeWhere((c) => c.medicine.barcode == barcode);
+  Future<void> updateCartItem(String barcode, int quantity) async {
+    final id = _currentUser?.id;
+    if (id == null) return;
+    _cart = await cartApi.updateItem(id, barcode, quantity);
     notifyListeners();
   }
 
-  void clearCart() {
-    _cart.clear();
+  Future<void> removeCartItem(String barcode) async {
+    final id = _currentUser?.id;
+    if (id == null) return;
+    _cart = await cartApi.removeItem(id, barcode);
+    notifyListeners();
+  }
+
+  Future<void> clearCart() async {
+    final id = _currentUser?.id;
+    if (id == null) return;
+    _cart = await cartApi.clear(id);
     notifyListeners();
   }
 }

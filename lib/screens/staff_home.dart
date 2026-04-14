@@ -5,6 +5,7 @@ import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import 'admin/add_medicine_screen.dart';
 import 'admin/branches_screen.dart';
+import 'admin/excel_import_screen.dart';
 import 'admin/inventory_screen.dart';
 import 'admin/reports_screen.dart';
 import 'admin/stock_screen.dart';
@@ -60,12 +61,29 @@ class _StaffHomeState extends State<StaffHome> {
       ),
       body: _pages[_index],
       floatingActionButton: _index == 0
-          ? FloatingActionButton.extended(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AddMedicineScreen()),
-              ),
-              icon: const Icon(Icons.add),
-              label: const Text('Эм нэмэх'),
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton.extended(
+                  heroTag: 'import',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const ExcelImportScreen()),
+                  ),
+                  icon: const Icon(Icons.upload_file),
+                  label: const Text('Excel'),
+                ),
+                const SizedBox(width: 8),
+                FloatingActionButton.extended(
+                  heroTag: 'add',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const AddMedicineScreen()),
+                  ),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Эм нэмэх'),
+                ),
+              ],
             )
           : null,
       bottomNavigationBar: DecoratedBox(

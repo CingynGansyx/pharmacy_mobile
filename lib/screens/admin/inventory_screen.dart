@@ -22,7 +22,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
   void initState() {
     super.initState();
     _future = _load();
+    _search.addListener(_onSearchChanged);
   }
+
+  void _onSearchChanged() => setState(() {});
 
   Future<List<Medicine>> _load() {
     final state = context.read<AppState>();
@@ -35,12 +38,14 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   @override
   void dispose() {
+    _search.removeListener(_onSearchChanged);
     _search.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final hasText = _search.text.isNotEmpty;
     return Column(
       children: [
         Padding(
@@ -50,17 +55,16 @@ class _InventoryScreenState extends State<InventoryScreen> {
             decoration: InputDecoration(
               hintText: 'Хайх...',
               prefixIcon: const Icon(Icons.search, size: 20),
-              suffixIcon: _search.text.isEmpty
-                  ? null
-                  : IconButton(
+              suffixIcon: hasText
+                  ? IconButton(
                       icon: const Icon(Icons.close, size: 18),
                       onPressed: () {
                         _search.clear();
                         _refresh();
                       },
-                    ),
+                    )
+                  : null,
             ),
-            onChanged: (_) => setState(() {}),
             onSubmitted: (_) => _refresh(),
           ),
         ),
