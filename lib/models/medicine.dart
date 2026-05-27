@@ -9,6 +9,10 @@ class Medicine {
   final String? category;
   final DateTime? expiryDate;
   final bool prescriptionRequired;
+  final String? innName;
+  final String? atcCode;
+  final String? form;
+  final int? insuranceDiscountPercent;
 
   Medicine({
     required this.barcode,
@@ -21,7 +25,19 @@ class Medicine {
     this.category,
     this.expiryDate,
     this.prescriptionRequired = false,
+    this.innName,
+    this.atcCode,
+    this.form,
+    this.insuranceDiscountPercent,
   });
+
+  bool get hasInsuranceDiscount =>
+      insuranceDiscountPercent != null && insuranceDiscountPercent! > 0;
+
+  double get discountedPrice {
+    if (!hasInsuranceDiscount) return price;
+    return price * (100 - insuranceDiscountPercent!) / 100;
+  }
 
   factory Medicine.fromJson(Map<String, dynamic> json) => Medicine(
         barcode: json['barcode'] as String,
@@ -36,6 +52,11 @@ class Medicine {
             ? null
             : DateTime.tryParse(json['expiryDate'] as String),
         prescriptionRequired: json['prescriptionRequired'] as bool? ?? false,
+        innName: json['innName'] as String?,
+        atcCode: json['atcCode'] as String?,
+        form: json['form'] as String?,
+        insuranceDiscountPercent:
+            (json['insuranceDiscountPercent'] as num?)?.toInt(),
       );
 
   Map<String, dynamic> toCreateJson() => {
@@ -51,5 +72,10 @@ class Medicine {
           'expiryDate':
               '${expiryDate!.year.toString().padLeft(4, '0')}-${expiryDate!.month.toString().padLeft(2, '0')}-${expiryDate!.day.toString().padLeft(2, '0')}',
         'prescriptionRequired': prescriptionRequired,
+        if (innName != null) 'innName': innName,
+        if (atcCode != null) 'atcCode': atcCode,
+        if (form != null) 'form': form,
+        if (insuranceDiscountPercent != null)
+          'insuranceDiscountPercent': insuranceDiscountPercent,
       };
 }

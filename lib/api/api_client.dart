@@ -21,7 +21,7 @@ class ApiClient {
   final http.Client _client;
 
   static String _defaultBaseUrl() {
-    return 'https://nemesis-tribesman-uneven.ngrok-free.dev';
+    return 'https://pharmacy-kr00.onrender.com';
   }
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
