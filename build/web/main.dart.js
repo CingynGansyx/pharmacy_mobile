@@ -96019,7 +96019,7 @@ q.m(0,B.n1,B.y)
 return new A.zz(new A.xd(new A.afV(),s,s,A.b3b(),A.b24(),t.DP),s,s,new A.BW(B.mj,"\u042d\u043c\u0438\u0439\u043d \u0441\u0430\u043d",r,!1,q,s),s,t.ox)}}
 A.afV.prototype={
 $1(a){var s,r=new A.a3Z(A.b([],t.O))
-r=new A.a37("https://pharmacy-kr00.onrender.com",r)
+r=new A.a37("https://pharmacy-production-b3d1.up.railway.app",r)
 s=new A.ld(r,$.a9())
 s.b=new A.a3s(r)
 s.c=new A.an2(r)

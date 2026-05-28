@@ -21,7 +21,7 @@ class ApiClient {
   final http.Client _client;
 
   static String _defaultBaseUrl() {
-    return 'https://pharmacy-kr00.onrender.com';
+    return 'https://pharmacy-production-b3d1.up.railway.app';
   }
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
