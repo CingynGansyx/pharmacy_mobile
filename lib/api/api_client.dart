@@ -14,8 +14,8 @@ class ApiException implements Exception {
 
 class ApiClient {
   ApiClient({String? baseUrl, http.Client? client})
-      : baseUrl = baseUrl ?? _defaultBaseUrl(),
-        _client = client ?? http.Client();
+    : baseUrl = baseUrl ?? _defaultBaseUrl(),
+      _client = client ?? http.Client();
 
   final String baseUrl;
   final http.Client _client;
@@ -26,9 +26,9 @@ class ApiClient {
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
     final q = query?.map((k, v) => MapEntry(k, v?.toString() ?? ''));
-    return Uri.parse('$baseUrl$path').replace(
-      queryParameters: (q == null || q.isEmpty) ? null : q,
-    );
+    return Uri.parse(
+      '$baseUrl$path',
+    ).replace(queryParameters: (q == null || q.isEmpty) ? null : q);
   }
 
   Future<dynamic> get(String path, {Map<String, dynamic>? query}) async {
@@ -79,9 +79,8 @@ class ApiClient {
         fileFieldName,
         fileBytes,
         filename: fileName,
-        contentType: fileContentType == null
-            ? null
-            : _parseMediaType(fileContentType),
+        contentType:
+            fileContentType == null ? null : _parseMediaType(fileContentType),
       ),
     );
     final streamed = await _client.send(req);
@@ -98,10 +97,10 @@ class ApiClient {
   }
 
   Map<String, String> _headers() => {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Accept': 'application/json',
-        'ngrok-skip-browser-warning': 'true',
-      };
+    'Content-Type': 'application/json; charset=utf-8',
+    'Accept': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
+  };
 
   dynamic _decode(http.Response r) {
     if (r.statusCode >= 200 && r.statusCode < 300) {

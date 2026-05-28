@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../api/api_client.dart';
 import '../models/server_cart.dart';
 import '../models/user.dart';
+import '../services/announcement_service.dart';
 import '../services/auth_service.dart';
 import '../services/branch_service.dart';
 import '../services/cart_api_service.dart';
@@ -24,6 +25,7 @@ class AppState extends ChangeNotifier {
     prescriptions = PrescriptionService(this.api);
     cartApi = CartApiService(this.api);
     payments = PaymentApiService(this.api);
+    announcements = AnnouncementService(this.api);
   }
 
   final ApiClient api;
@@ -36,6 +38,7 @@ class AppState extends ChangeNotifier {
   late final PrescriptionService prescriptions;
   late final CartApiService cartApi;
   late final PaymentApiService payments;
+  late final AnnouncementService announcements;
 
   // ---- User ----
   AppUser? _currentUser;

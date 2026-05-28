@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
+import 'announcements_screen.dart';
 import 'cart_screen.dart';
 import 'login_screen.dart';
 import 'medicines_screen.dart';
@@ -21,12 +22,13 @@ class _CustomerHomeState extends State<CustomerHome> {
 
   static const _pages = <Widget>[
     MedicinesScreen(),
+    AnnouncementsScreen(),
     CartScreen(),
     WalletScreen(),
     ProfileScreen(),
   ];
 
-  static const _titles = ['Эмийн жагсаалт', 'Сагс', 'Хэтэвч', 'Профайл'];
+  static const _titles = ['Эм', 'Зар мэдээ', 'Сагс', 'Хэтэвч', 'Профайл'];
 
   @override
   Widget build(BuildContext context) {
@@ -64,6 +66,11 @@ class _CustomerHomeState extends State<CustomerHome> {
               icon: Icon(Icons.medication_outlined),
               selectedIcon: Icon(Icons.medication),
               label: 'Эм',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.campaign_outlined),
+              selectedIcon: Icon(Icons.campaign),
+              label: 'Зар',
             ),
             NavigationDestination(
               icon: Badge(
